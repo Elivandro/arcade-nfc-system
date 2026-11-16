@@ -1,58 +1,99 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# API Laravel
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Backend do sistema Arcade NFC. Ele autentica a máquina pelo token, valida o UID do cartão, debita o valor da partida e registra a transação.
 
-## About Laravel
+## Requisitos
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+- PHP 8.3 e Composer 2 ou superior
+- Node.js e npm para compilar os assets web
+- Redis
+- Docker para executar com Laravel Sail
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+## Instalação com Sail/Docker (recomendavel)
+Se você estiver usando linux ou WSL basta rodar make
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+No terminal, a partir da raiz do repositório:
 
-## Learning Laravel
+```sh
+cd nfc-system-api && make
+```
+### [Sail alias](https://laravel.com/framework/docs/master/sail#configuring-a-shell-alias)
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+## Instalação manual
+Instale as dependencias e compile os assets e inicie os serviços:
 
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
-
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
-
-## Agentic Development
-
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
-
-```bash
-composer require laravel/boost --dev
-
-php artisan boost:install
+```sh
+cd nfc-system-api && cp .env.example .env
+npm install && composer install --ignore-platform-reqs
+npm run build
+php artisan key:generate
+php artisan serve
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+## Migrações: Banco de dados e dados para testes
+```sh
+php artisan migrate
+php artisan db:seed
+```
 
-## Contributing
+Os dados do MySQL ficam no volume Docker `sail-mysql`. **Não use `migrate:fresh` com dados que deseja manter**, pois esse comando apaga as tabelas.
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+## Preparar máquina e cartão de teste
 
-## Code of Conduct
+O seeder cria máquinas e cartões de exemplo, mas os tokens e alguns dados são gerados aleatoriamente. Crie um token para uma máquina e configure o mesmo valor no `.env` do firmware:
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+```sh
+php artisan tinker
+```
 
-## Security Vulnerabilities
+Para trocar os valores basta ir no Tinker:
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+```php
+$machine = App\Models\ArcadeMachine::query()->firstOrFail();
+$machine->cost_per_play = 1.50;
+$machine->api_token = Illuminate\Support\Str::random(64);
+$machine->save();
+$machine->api_token;
+```
 
-## License
+Copie o token exibido para `MACHINE_TOKEN` em `esp32_nfc_display/.env`. Não inclua o prefixo `Bearer`; o firmware o adiciona ao cabeçalho HTTP.
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+Para testar, use uma tag cujo UID esteja cadastrado como cartão ativo e que tenha saldo suficiente. Os seeders incluem cartões de exemplo; confira ou ajuste o cartão no Tinker antes do teste:
+
+```php
+$card = App\Models\Card::where('uid', '7B19FC53')->firstOrFail();
+$card->status = App\Enums\CardType::ACTIVE->value;
+$card->balance = 50.00;
+$card->save();
+```
+
+Esse UID só funcionará se a tag física tiver exatamente esse identificador. O ESP32 lê o UID; ele não grava nem provisiona cartões.
+
+## API usada pelo firmware
+
+Confira a rota registrada:
+
+```sh
+php artisan route:list --path=v1/arcade
+```
+
+O firmware faz `POST /v1/arcade/validate-play` com `Content-Type: application/json`, `Authorization: Bearer <token-da-maquina>` e este corpo:
+
+```json
+{
+    "uid":"7B19FC53"
+}
+```
+
+Ao ler um cartão, o firmware tenta `POST /v1/arcade/register-card`. Cadastro concluído retorna HTTP 201 e `REGISTERED`; quando não há cliente aguardando, a API responde HTTP 204 e o firmware segue para `POST /v1/arcade/validate-play`. O `GET /v1/arcade/reader-mode` permanece disponível para compatibilidade com firmware anterior. Partida aprovada retorna HTTP 200 com `APPROVED` e o novo saldo. Cartão inválido/inativo retorna HTTP 404; saldo insuficiente, HTTP 402; token ausente ou não autorizado, HTTP 401 ou 403. O firmware só aciona o relé para HTTP 200 e `APPROVED`.
+
+No painel, edite os dados do cliente, altere o status do cartão (ativo, bloqueado ou suspenso) e use **Adicionar saldo** no cartão desejado. A recarga cria uma transação do tipo `credit`, sem máquina associada. Não há exclusão física de clientes ou cartões nesse fluxo, para preservar o histórico financeiro.
+
+## Testes e logs
+
+```sh
+php artisan test
+php artisan pail
+```
+
+Os logs Laravel também ficam em `storage/logs/laravel.log`.
