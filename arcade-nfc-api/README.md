@@ -38,6 +38,16 @@ php artisan db:seed
 
 Os dados do MySQL ficam no volume Docker `sail-mysql`. **Não use `migrate:fresh` com dados que deseja manter**, pois esse comando apaga as tabelas.
 
+## certifique-se de configurar o redis
+exemplo com sail/docker
+
+```sh
+REDIS_CLIENT=phpredis
+REDIS_HOST=redis
+REDIS_PASSWORD=null
+REDIS_PORT=6379
+```
+
 ## Preparar máquina e cartão de teste
 
 O seeder cria máquinas e cartões de exemplo, mas os tokens e alguns dados são gerados aleatoriamente. Crie um token para uma máquina e configure o mesmo valor no `.env` do firmware:
