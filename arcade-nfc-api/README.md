@@ -6,7 +6,6 @@ Backend do sistema Arcade NFC. Ele autentica a máquina pelo token, valida o UID
 
 - PHP 8.3 e Composer 2 ou superior
 - Node.js e npm para compilar os assets web
-- Redis
 - Docker para executar com Laravel Sail
 
 ## Instalação com Sail/Docker (recomendavel)
@@ -37,16 +36,6 @@ php artisan db:seed
 ```
 
 Os dados do MySQL ficam no volume Docker `sail-mysql`. **Não use `migrate:fresh` com dados que deseja manter**, pois esse comando apaga as tabelas.
-
-## certifique-se de configurar o redis
-exemplo com sail/docker
-
-```sh
-REDIS_CLIENT=phpredis
-REDIS_HOST=redis
-REDIS_PASSWORD=null
-REDIS_PORT=6379
-```
 
 ## Preparar máquina e cartão de teste
 
